@@ -31,8 +31,8 @@ prices:
 # 🤖 Reward Parameters
 reward:
   # Temel cezalar
-  unmet_load_penalty: -2000.0       # Karşılanamayan yük için kW başına ceza (EN KRİTİK)
-  soc_penalty_coef: -2000.0         # SOC limit aşımında, aşılan % başına ceza
+  unmet_load_penalty: -2200.0       # Karşılanamayan yük için kW başına ceza (EN KRİTİK)
+  soc_penalty_coef: -2200.0         # SOC limit aşımında, aşılan % başına ceza
   
   # Stratejik cezalar
   price_penalty_coef:               # Gereksiz şebeke kullanımı için fiyat seviyesine göre ceza katsayıları

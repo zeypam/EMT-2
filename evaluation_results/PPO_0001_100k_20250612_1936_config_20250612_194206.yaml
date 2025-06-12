@@ -11,7 +11,7 @@ environment:
     max_power_kw: 1000      # Batarya gücü 1000kW'a güncellendi
     efficiency: 0.92
   grid:
-    max_power_kw: 100000     # Şebeke kapasitesi 10000kW'a güncellendi
+    max_power_kw: 10000     # Şebeke kapasitesi 10000kW'a güncellendi
 
 # 💰 Price Configuration
 prices:
@@ -32,7 +32,7 @@ prices:
 reward:
   # Temel cezalar
   unmet_load_penalty: -2000.0       # Karşılanamayan yük için kW başına ceza (EN KRİTİK)
-  soc_penalty_coef: -2000.0         # SOC limit aşımında, aşılan % başına ceza
+  soc_penalty_coef: -3000.0         # SOC limit aşımında, aşılan % başına ceza
   
   # Stratejik cezalar
   price_penalty_coef:               # Gereksiz şebeke kullanımı için fiyat seviyesine göre ceza katsayıları

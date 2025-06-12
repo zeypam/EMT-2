@@ -11,7 +11,7 @@ environment:
     max_power_kw: 1000      # Batarya gücü 1000kW'a güncellendi
     efficiency: 0.92
   grid:
-    max_power_kw: 100000     # Şebeke kapasitesi 10000kW'a güncellendi
+    max_power_kw: 100     # Şebeke kapasitesi 10000kW'a güncellendi
 
 # 💰 Price Configuration
 prices:
