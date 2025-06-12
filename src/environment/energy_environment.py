@@ -132,9 +132,11 @@ class EnergyEnvironment(gym.Env):
             dtype=np.float32
         )
         
-        # Action Space (Normalized Continuous)
-        action_low = np.array([-1.0, -1.0], dtype=np.float32)
-        action_high = np.array([1.0, 1.0], dtype=np.float32)
+        # Action Space:
+        # [0]: Grid power ratio (0 to 1, will be multiplied by max_grid_power)
+        # [1]: Battery action (-1 to 1, negative=discharge, positive=charge)
+        action_low = np.array([0.0, -1.0], dtype=np.float32)   # Grid power can't be negative
+        action_high = np.array([1.0, 1.0], dtype=np.float32)   # Grid power normalized to [0,1]
         
         self.action_space = spaces.Box(
             low=action_low,
@@ -142,7 +144,7 @@ class EnergyEnvironment(gym.Env):
             dtype=np.float32
         )
         
-        logger.info("🎯 State & Action spaces tanımlandı (Normalized Continuous)")
+        logger.info("🎯 State & Action spaces tanımlandı (Grid: [0,1], Battery: [-1,1])")
     
     def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[np.ndarray, Dict]:
         """Environment'ı reset et"""
@@ -199,43 +201,58 @@ class EnergyEnvironment(gym.Env):
         renewable_kw = solar_kw + wind_kw
         
         # --- 1. Aksiyonları Yorumla ---
-        grid_connection_decision = 1 if action[0] > 0 else 0
-        battery_power = float(action[1]) * self.max_battery_power
+        # Grid action normalization'ı düzelt
+        grid_power = float(action[0]) * self.max_grid_power  # Grid power'ı normalize et
+        battery_power = float(action[1]) * self.max_battery_power  # Battery power'ı normalize et
 
         # --- 2. Güvenlik ve Fizik Kurallarını Uygula ---
-        is_critical_state = (self.battery_soc <= self.min_soc) and (renewable_kw < load_kw)
-        if is_critical_state:
-            grid_connection = 1
-        else:
-            grid_connection = grid_connection_decision
-
+        # Batarya gücünü doğrula
         battery_power = self._validate_battery_power(battery_power)
+        
+        # Grid gücünü doğrula ve sınırla
+        grid_power = np.clip(grid_power, 0, self.max_grid_power)
 
         # --- 3. Enerji Dengesini Hesapla ---
-        grid_energy = 0.0
-        unmet_load = 0.0
-
-        if grid_connection == 1:
-            required_grid_power = load_kw + battery_power - renewable_kw
-            grid_energy = max(0, required_grid_power)
-            
-            if grid_energy > self.max_grid_power:
-                unmet_load = grid_energy - self.max_grid_power
-                grid_energy = self.max_grid_power
-        else:
-            balance = renewable_kw - battery_power - load_kw
-            if balance < 0:
-                unmet_load = abs(balance)
-
-        # --- 4. Ödülü Hesapla ---
-        reward, reward_details = self._calculate_reward(load_kw, renewable_kw, grid_energy, battery_power, unmet_load, grid_connection, current_data)
+        # Önce yenilenebilir enerjiyi kullan
+        remaining_load = load_kw - renewable_kw
         
-        # --- 5. Durumları Güncelle ---
+        # Eğer yük hala varsa, batarya ve grid'den karşıla
+        if remaining_load > 0:
+            # Batarya deşarj edilebilirse
+            if battery_power < 0:  # Negatif değer deşarj anlamına gelir
+                battery_contribution = min(abs(battery_power), remaining_load)
+                remaining_load -= battery_contribution
+            
+            # Kalan yükü grid'den karşıla
+            grid_energy = min(remaining_load, grid_power)
+            unmet_load = max(0, remaining_load - grid_energy)
+        else:
+            # Fazla yenilenebilir enerji var
+            grid_energy = 0
+            unmet_load = 0
+            
+            # Fazla enerjiyi bataryada depolayabilir miyiz?
+            if battery_power > 0:  # Pozitif değer şarj anlamına gelir
+                excess_renewable = abs(remaining_load)  # remaining_load negatif olduğu için abs alıyoruz
+                battery_power = min(battery_power, excess_renewable)  # Şarj miktarını sınırla
+
+        # --- 4. Batarya Durumunu Güncelle ---
         self._update_battery(battery_power)
+        
+        # --- 5. Ödülü Hesapla ---
+        reward, reward_details = self._calculate_reward(
+            load_kw=load_kw,
+            renewable_kw=renewable_kw,
+            grid_energy=grid_energy,
+            battery_power=battery_power,
+            unmet_load=unmet_load,
+            grid_connection=1 if grid_energy > 0 else 0,
+            current_data=current_data
+        )
         
         # --- 6. Sonraki Adıma Geç ---
         self.current_step += 1
-        observation = self._get_observation()
+        next_observation = self._get_observation()
         
         info = {
             'step_details': {
@@ -251,7 +268,7 @@ class EnergyEnvironment(gym.Env):
         
         self._update_metrics(reward, grid_energy, renewable_kw, battery_power, unmet_load)
         
-        return observation, reward, terminated, truncated, info
+        return next_observation, reward, terminated, truncated, info
     
     def _get_observation(self) -> np.ndarray:
         """Mevcut state observation'ını döndür"""
@@ -409,11 +426,21 @@ class EnergyEnvironment(gym.Env):
     def _update_battery(self, battery_power: float, time_step_hours: float = 1.0):
         """Batarya SOC'sini güncelle"""
         if battery_power > 0:  # Şarj
-            soc_change = (battery_power * time_step_hours * self.battery_efficiency) / self.battery_capacity
+            # Şarj sırasında verimi hesaba kat (kayıplar nedeniyle daha az enerji depolanır)
+            energy_stored = battery_power * time_step_hours * self.battery_efficiency
+            soc_change = energy_stored / self.battery_capacity
         elif battery_power < 0:  # Deşarj
-            soc_change = (battery_power * time_step_hours) / self.battery_efficiency / self.battery_capacity
+            # Deşarj sırasında verimi hesaba kat (kayıplar nedeniyle daha fazla enerji çekilir)
+            energy_drawn = abs(battery_power) * time_step_hours
+            soc_change = -energy_drawn / (self.battery_capacity * self.battery_efficiency)
         else:
             soc_change = 0.0
             
-        self.battery_soc += soc_change
-        self.battery_soc = np.clip(self.battery_soc, 0.0, 1.0) 
+        # SOC değişimini uygula ve sınırları kontrol et
+        new_soc = self.battery_soc + soc_change
+        self.battery_soc = np.clip(new_soc, 0.0, 1.0)
+        
+        # Debug bilgisi
+        if abs(battery_power) > 0:
+            logger.debug(f"Battery update: Power={battery_power:.2f}kW, SOC Change={soc_change*100:.2f}%, "
+                      f"New SOC={self.battery_soc*100:.2f}%") 

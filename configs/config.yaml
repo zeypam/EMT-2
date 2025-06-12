@@ -55,18 +55,18 @@ reward:
 # 🤖 Training Parameters
 training:
   # Model parameters
-  learning_rate: 0.01
-  batch_size: 128
-  gamma: 0.99
+  learning_rate: 0.0003             # Daha düşük learning rate ile daha stabil öğrenme
+  batch_size: 256                   # Daha büyük batch size ile daha iyi genelleme
+  gamma: 0.99                       # Gelecek ödülleri önemseyen discount factor
   
   # Training parameters
-  total_timesteps: 1000000
+  total_timesteps: 2000000          # Daha uzun eğitim süresi
   save_freq: 100000
   
   # Exploration parameters
   exploration:
-    entropy_coef: 0.1
-    exploration_fraction: 0.5
+    entropy_coef: 0.1              # Daha yüksek keşif için entropy
+    exploration_fraction: 0.3       # Eğitimin ilk %30'unda yüksek keşif
     
   # Episode parameters
   episodes: 100
@@ -80,6 +80,6 @@ monitoring:
 
 # 📁 Data Paths
 data:
-  load_file: "/content/EMT-2/data/synthetic_load_itu.csv"
-  wind_file: "/content/EMT-2/data/sim_wind_gen_result.csv" 
-  solar_file: "/content/EMT-2/data/sim_solar_gen_result.csv" 
+  load_file: "data/synthetic_load_itu.csv"
+  wind_file: "data/sim_wind_gen_result.csv" 
+  solar_file: "data/sim_solar_gen_result.csv" 
